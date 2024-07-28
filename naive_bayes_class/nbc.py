@@ -4,6 +4,18 @@ import pandas as pd
 
 class myMixedNB:
     def __init__(self, L=1):
+        """
+        # Important:
+        The mixed class assumes that in the training and prediction set, the categorical features are at the last columns, for simplicity.
+        First the continuous features and then the categorical features. In myMixedNB.train, the caller has to input the
+        categorical_feats list, which includes the indices of the categorical features.
+        In myMixedNB.predict, the parameters for the categorical features are looked for in a list that starts with index 0,
+        which corresponds to the first categorical feature. The formula used is
+        theta[feature - self.categorical_feats[0]][feat_value][cls]
+        to be used as an index, so if the position of the first categorical feature is 15, then we will look for its
+        probabilities in params_x_given_y [15-15] = param_x_given_y [0] which is what we wanted.
+        Same logic holds for the means and variances for the continuous features but since these are the first ones that appear, the indices hold.
+        """
         self.means = None
         self.variances = None
         self.classes = None
@@ -32,14 +44,16 @@ class myMixedNB:
         n_samples, n_features = X.shape
         categoricals = X[:,categorical_feats].astype(int)
 
+
         continuous_feats = [i for i in range(n_features) if i not in categorical_feats]  # indices of continuous features
         continuous = X[:,continuous_feats]
 
-        if self.D_categorical is None: self.D_categorical = [len(np.unique(categoricals[:, idx])) for idx in range(categoricals.shape[1])]
+        if self.D_categorical is None: 
+            #self.D_categorical = [len(np.unique(categoricals[:, idx])) for idx in range(categoricals.shape[1])]
+            self.D_categorical = [2 for _ in range(len(self.categorical_feats))]
 
-        
-        self.train_categorical_part(categoricals, Y)
-        self.train_continuous_part(continuous, Y)
+        self.train_categorical_part(categorical_data=categoricals, Y=Y)
+        self.train_continuous_part(continuous_data=continuous, Y=Y)
 
     def predict(self, X):
         """
@@ -59,7 +73,6 @@ class myMixedNB:
         means = self.means
         variances = self.variances
 
-
         for sample in X: #-> iterates over rows
             max_prob = -np.inf
             predicted_class = None
@@ -69,9 +82,16 @@ class myMixedNB:
                 prob = np.log(pi[cls])
                 for feature in range(len(sample)):
                     if feature in self.categorical_feats:
-                        feat_value = int(sample[feature]) # its a categorical feature
+                        feat_value = int(sample[feature])
+                        # sample[feature]: this cat. feature could be at index K in the dataset, but
+                        # since these features are assumed to be at the right side of the dataset array,
+                        # we look at the K - N index in the params array.
+
                         # using log to avoid numerical underflow
-                        prob += np.log(theta[feature][feat_value][cls])
+                        try:
+                            prob += np.log(theta[feature - self.categorical_feats[0]][feat_value][cls])
+                        except IndexError:
+                            raise IndexError('Index out of range in parameters array. Does your training set contain all possible cases?')
                     else:
                         prob += np.log(1 / np.sqrt(2 * np.pi * variances[cls][feature])) + (-1 / (2 * variances[cls][feature])) * (sample[feature] - means[cls][feature])**2
 
@@ -87,7 +107,7 @@ class myMixedNB:
         # useful variables
         n_samples, n_features = categoricals.shape
 
-        classes = np.unique(Y) #-> sorted array of class VALUES
+        classes = [0,1]#np.unique(Y) #-> sorted array of class VALUES
         n_classes = len(classes)
 
 
@@ -147,7 +167,7 @@ class myMixedNB:
         # useful variables
         n_samples, n_features = continuous_data.shape
 
-        classes = np.unique(Y) #-> sorted array of class VALUES
+        classes = [0,1]#np.unique(Y) #-> sorted array of class VALUES
         n_classes = len(classes)
 
         class_counts : dict = {cls : 0 for cls in classes} #-> dict, key = class , value = how many times it appears in Y
@@ -260,7 +280,11 @@ class myCategoricalNB:
                 for feature in range(len(sample)):
                     #print(f'theta at feat {feature} = {theta[feature]}')
                     # using log to avoid numerical underflow
-                    theta_val = theta[feature][sample[feature]][cls]
+                    try:
+                        theta_val = theta[feature][sample[feature]][cls]
+                    except IndexError:
+                        raise IndexError('Index out of range in parameters array. Does your training set contain all possible cases?')
+
 
                     #debug log
                     #if theta_val == 0:  print(f'predicting \n feature {feature}, sample {sample}, class {cls}, theta is zero.')
